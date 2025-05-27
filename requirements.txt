@@ -1,0 +1,4 @@
+Flask==2.0.1
+RPi.GPIO==0.7.0
+adafruit-circuitpython-ds3231==2.4.3
+adafruit-blinka==6.20.1
