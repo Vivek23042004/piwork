@@ -5,6 +5,24 @@ import board
 import busio
 import adafruit_ds3231
 import threading
+import json
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+from functools import wraps
+
+# Setup logging
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, 'medication_system.log')
+
+logger = logging.getLogger('medication_system')
+logger.setLevel(logging.INFO)
+handler = RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 # Setup GPIO mode
 GPIO.setmode(GPIO.BCM)
@@ -54,47 +72,68 @@ medication_taken = [False, False]  # For two compartments
 compartment_open = [False, False]  # For two compartments
 alert_active = [False, False]  # For alert status
 
+# System status
+system_running = False
+system_messages = []
+MAX_MESSAGES = 100  # Maximum number of messages to keep in memory
+
+# Function to add a message to the system messages list
+def add_system_message(message):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    system_messages.append({"timestamp": timestamp, "message": message})
+    logger.info(message)
+    # Keep only the last MAX_MESSAGES messages
+    if len(system_messages) > MAX_MESSAGES:
+        system_messages.pop(0)
+
 # Function to control servo position
 def set_servo_angle(servo, angle):
     duty = angle / 18 + 2
     servo.ChangeDutyCycle(duty)
     time.sleep(0.5)
     servo.ChangeDutyCycle(0)  # Stop pulse to prevent jitter
+
 def open_compartment(compartment_number):
-    print(f"Opening compartment {compartment_number+1}")
+    message = f"Opening compartment {compartment_number+1}"
+    add_system_message(message)
     if compartment_number == 0:
         set_servo_angle(servo1, 90)
     else:
         set_servo_angle(servo2, 90)
     compartment_open[compartment_number] = True
-    print(f"Box {compartment_number+1} opened")
+    add_system_message(f"Box {compartment_number+1} opened")
     GPIO.output(LED_PIN_1 if compartment_number == 0 else LED_PIN_2, GPIO.HIGH)
     timer_thread = threading.Thread(target=compartment_timer, args=(compartment_number,))
     timer_thread.daemon = True
     timer_thread.start()
+    return True
 
 # Function to close compartment
 def close_compartment(compartment_number):
-    print(f"Closing compartment {compartment_number+1}")
+    message = f"Closing compartment {compartment_number+1}"
+    add_system_message(message)
     if compartment_number == 0:
         set_servo_angle(servo1, 0)
     else:
         set_servo_angle(servo2, 0)
     compartment_open[compartment_number] = False
     GPIO.output(LED_PIN_1 if compartment_number == 0 else LED_PIN_2, GPIO.LOW)
+    return True
 
 # Function to sound buzzer
 def sound_buzzer(times=3, duration=0.2, pause=0.2):
+    add_system_message(f"Sounding buzzer: {times} times")
     for _ in range(times):
         GPIO.output(BUZZER_PIN, GPIO.HIGH)
         time.sleep(duration)
         GPIO.output(BUZZER_PIN, GPIO.LOW)
         time.sleep(pause)
+    return True
 
 # Function to alert user if pill not taken
 def alert_pill_not_taken(compartment_number):
     if not medication_taken[compartment_number] and compartment_open[compartment_number]:
-        print(f"ALERT: Pill from compartment {compartment_number+1} not taken!")
+        add_system_message(f"ALERT: Pill from compartment {compartment_number+1} not taken!")
         close_compartment(compartment_number)
         sound_buzzer(times=5, duration=0.5, pause=0.3)
         led_pin = LED_PIN_1 if compartment_number == 0 else LED_PIN_2
@@ -113,12 +152,13 @@ def compartment_timer(compartment_number):
     time.sleep(60)
     if compartment_open[compartment_number] and not medication_taken[compartment_number]:
         alert_pill_not_taken(compartment_number)
+
 def check_pill_taken():
     for compartment in range(2):
         if compartment_open[compartment]:
             ir_pin = IR_SENSOR_1 if compartment == 0 else IR_SENSOR_2
             if GPIO.input(ir_pin) == GPIO.HIGH and not medication_taken[compartment]:
-                print(f"Pill from compartment {compartment+1} is taken")
+                add_system_message(f"Pill from compartment {compartment+1} is taken")
                 medication_taken[compartment] = True
                 alert_active[compartment] = False
                 time.sleep(2)
@@ -142,14 +182,15 @@ def set_medication_time(compartment, slot, hour, minute):
     if 0 <= compartment <= 1 and 0 <= slot <= 1:
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             medication_times[compartment][slot] = [hour, minute]
-            print(f"Medication time for compartment {compartment+1}, slot {slot+1} set to {hour:02d}:{minute:02d}")
+            add_system_message(f"Medication time for compartment {compartment+1}, slot {slot+1} set to {hour:02d}:{minute:02d}")
             return True
     return False
 
 # Function to set RTC time
 def set_rtc_time(year, month, day, hour, minute, second):
     rtc.datetime = time.struct_time((year, month, day, hour, minute, second, 0, -1, -1))
-    print(f"RTC time set to: {year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}")
+    add_system_message(f"RTC time set to: {year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}")
+    return True
 
 # Function to get current RTC time
 def get_rtc_time():
@@ -162,123 +203,208 @@ def reset_medication_status():
     if current_time.tm_hour == 0 and current_time.tm_min == 0:
         for compartment in range(2):
             medication_taken[compartment] = False
-            print(f"Medication status for compartment {compartment+1} reset for new day")
+            add_system_message(f"Medication status for compartment {compartment+1} reset for new day")
 
 # Function to check magnetic switches
 def check_magnetic_switches():
     for compartment in range(2):
         magnetic_pin = MAGNETIC_SWITCH_1 if compartment == 0 else MAGNETIC_SWITCH_2
         if GPIO.input(magnetic_pin) == GPIO.HIGH:
-            print(f"WARNING: Compartment {compartment+1} may have been tampered with!")
+            add_system_message(f"WARNING: Compartment {compartment+1} may have been tampered with!")
 
-# Main function
-def main():
-    print("Medication Reminder System Started")
-    print("Current RTC Time:", get_rtc_time())
-    print("Medication times:")
+# Main monitoring function
+def monitoring_thread():
+    global system_running
+    add_system_message("Medication Reminder System Started")
+    add_system_message(f"Current RTC Time: {get_rtc_time()}")
+    add_system_message("Medication times:")
     for compartment in range(2):
         for slot, time_slot in enumerate(medication_times[compartment]):
-            print(f"Compartment {compartment+1}, Slot {slot+1}: {time_slot[0]:02d}:{time_slot[1]:02d}")
+            add_system_message(f"Compartment {compartment+1}, Slot {slot+1}: {time_slot[0]:02d}:{time_slot[1]:02d}")
+    
     try:
         close_compartment(0)
         close_compartment(1)
-        while True:
+        while system_running:
             check_medication_time()
             check_pill_taken()
             check_magnetic_switches()
             reset_medication_status()
             time.sleep(1)
-    except KeyboardInterrupt:
-        print("Program stopped by user")
+    except Exception as e:
+        add_system_message(f"Error in monitoring thread: {str(e)}")
     finally:
-        servo1.stop()
-        servo2.stop()
-        GPIO.cleanup()
-        print("GPIO cleanup completed")
+        add_system_message("Monitoring thread stopped")
 
-# Command Line Interface
-def cli():
-    while True:
-        print("\nMedication Reminder System - CLI")
-        print("1. Set medication time")
-        print("2. Set RTC time")
-        print("3. Display current RTC time")
-        print("4. Test open compartment")
-        print("5. Test close compartment")
-        print("6. Test buzzer")
-        print("7. Start main program")
-        print("8. Exit")
+# Initialize Flask app
+app = Flask(__name__)
 
-        choice = input("Enter your choice (1-8): ")
+# Simple authentication (for demonstration purposes)
+# In a production environment, use a more secure authentication method
+USERNAME = 'admin'
+PASSWORD = 'password'
 
-        if choice == '1':
-            try:
-                compartment = int(input("Enter compartment (1 or 2): ")) - 1
-                slot = int(input("Enter slot (1 or 2): ")) - 1
-                hour = int(input("Enter hour (0-23): "))
-                minute = int(input("Enter minute (0-59): "))
-                if set_medication_time(compartment, slot, hour, minute):
-                    print("Medication time set successfully")
-                else:
-                    print("Invalid input for setting medication time")
-            except ValueError:
-                print("Please enter valid numbers")
+def check_auth(username, password):
+    return username == USERNAME and password == PASSWORD
 
-        elif choice == '2':
-            try:
-                year = int(input("Enter year: "))
-                month = int(input("Enter month (1-12): "))
-                day = int(input("Enter day (1-31): "))
-                hour = int(input("Enter hour (0-23): "))
-                minute = int(input("Enter minute (0-59): "))
-                second = int(input("Enter second (0-59): "))
-                set_rtc_time(year, month, day, hour, minute, second)
-            except ValueError:
-                print("Please enter valid numbers")
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return jsonify({"error": "Authentication required"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
-        elif choice == '3':
-            print("Current RTC time:", get_rtc_time())
+# Routes
+@app.route('/')
+def index():
+    return render_template('index.html', 
+                          rtc_time=get_rtc_time(),
+                          medication_times=medication_times,
+                          medication_taken=medication_taken,
+                          compartment_open=compartment_open,
+                          system_running=system_running)
 
-        elif choice == '4':
-            try:
-                compartment = int(input("Enter compartment to open (1 or 2): ")) - 1
-                if 0 <= compartment <= 1:
-                    open_compartment(compartment)
-                else:
-                    print("Invalid compartment number")
-            except ValueError:
-                print("Please enter a valid number")
+@app.route('/api/status')
+def get_status():
+    return jsonify({
+        'rtc_time': get_rtc_time(),
+        'medication_times': medication_times,
+        'medication_taken': medication_taken,
+        'compartment_open': compartment_open,
+        'system_running': system_running,
+        'system_messages': system_messages[-20:]  # Return last 20 messages
+    })
 
-        elif choice == '5':
-            try:
-                compartment = int(input("Enter compartment to close (1 or 2): ")) - 1
-                if 0 <= compartment <= 1:
-                    close_compartment(compartment)
-                else:
-                    print("Invalid compartment number")
-            except ValueError:
-                print("Please enter a valid number")
-
-        elif choice == '6':
-            sound_buzzer()
-
-        elif choice == '7':
-            print("Starting main program. Press Ctrl+C to stop.")
-            main()
-
-        elif choice == '8':
-            print("Exiting program")
-            servo1.stop()
-            servo2.stop()
-            GPIO.cleanup()
-            break
-
+@app.route('/api/set_medication_time', methods=['POST'])
+@requires_auth
+def api_set_medication_time():
+    data = request.json
+    try:
+        compartment = int(data.get('compartment', 0)) - 1
+        slot = int(data.get('slot', 0)) - 1
+        hour = int(data.get('hour', 0))
+        minute = int(data.get('minute', 0))
+        
+        if set_medication_time(compartment, slot, hour, minute):
+            return jsonify({"success": True, "message": "Medication time set successfully"})
         else:
-            print("Invalid choice. Please try again.")
+            return jsonify({"success": False, "message": "Invalid input for setting medication time"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
 
-# ? Correct entry point
-if __name__ == "__main__":
-    cli()
+@app.route('/api/set_rtc_time', methods=['POST'])
+@requires_auth
+def api_set_rtc_time():
+    data = request.json
+    try:
+        year = int(data.get('year', 2023))
+        month = int(data.get('month', 1))
+        day = int(data.get('day', 1))
+        hour = int(data.get('hour', 0))
+        minute = int(data.get('minute', 0))
+        second = int(data.get('second', 0))
+        
+        if set_rtc_time(year, month, day, hour, minute, second):
+            return jsonify({"success": True, "message": "RTC time set successfully"})
+        else:
+            return jsonify({"success": False, "message": "Failed to set RTC time"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
 
+@app.route('/api/open_compartment', methods=['POST'])
+@requires_auth
+def api_open_compartment():
+    data = request.json
+    try:
+        compartment = int(data.get('compartment', 0)) - 1
+        if 0 <= compartment <= 1:
+            if open_compartment(compartment):
+                return jsonify({"success": True, "message": f"Compartment {compartment+1} opened"})
+            else:
+                return jsonify({"success": False, "message": "Failed to open compartment"})
+        else:
+            return jsonify({"success": False, "message": "Invalid compartment number"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
 
+@app.route('/api/close_compartment', methods=['POST'])
+@requires_auth
+def api_close_compartment():
+    data = request.json
+    try:
+        compartment = int(data.get('compartment', 0)) - 1
+        if 0 <= compartment <= 1:
+            if close_compartment(compartment):
+                return jsonify({"success": True, "message": f"Compartment {compartment+1} closed"})
+            else:
+                return jsonify({"success": False, "message": "Failed to close compartment"})
+        else:
+            return jsonify({"success": False, "message": "Invalid compartment number"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
 
+@app.route('/api/test_buzzer', methods=['POST'])
+@requires_auth
+def api_test_buzzer():
+    try:
+        if sound_buzzer():
+            return jsonify({"success": True, "message": "Buzzer test completed"})
+        else:
+            return jsonify({"success": False, "message": "Failed to test buzzer"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
+
+@app.route('/api/start_system', methods=['POST'])
+@requires_auth
+def api_start_system():
+    global system_running
+    try:
+        if not system_running:
+            system_running = True
+            thread = threading.Thread(target=monitoring_thread)
+            thread.daemon = True
+            thread.start()
+            return jsonify({"success": True, "message": "System started"})
+        else:
+            return jsonify({"success": False, "message": "System is already running"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
+
+@app.route('/api/stop_system', methods=['POST'])
+@requires_auth
+def api_stop_system():
+    global system_running
+    try:
+        if system_running:
+            system_running = False
+            time.sleep(2)  # Give time for the monitoring thread to stop
+            return jsonify({"success": True, "message": "System stopped"})
+        else:
+            return jsonify({"success": False, "message": "System is not running"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error: {str(e)}"})
+
+# Cleanup function to be called when the application exits
+def cleanup():
+    global system_running
+    system_running = False
+    time.sleep(1)
+    servo1.stop()
+    servo2.stop()
+    GPIO.cleanup()
+    add_system_message("GPIO cleanup completed")
+
+# Register the cleanup function to be called on exit
+import atexit
+atexit.register(cleanup)
+
+if __name__ == '__main__':
+    try:
+        # Start the Flask app
+        app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    except Exception as e:
+        logger.error(f"Error starting application: {str(e)}")
+    finally:
+        cleanup()
