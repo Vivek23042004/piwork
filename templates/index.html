@@ -594,63 +594,64 @@
             </div>
 
             <!-- Compartments Overview -->
-            <div class="card">
-                <h2>Pill Compartments Status</h2>
-                <div class="grid">
-                    <div class="compartment">
-                        <div class="compartment-header">
-                            <h3>Compartment 1</h3>
-                            <span class="compartment-status status-closed" id="compartment1-status">Closed</span>
-                        </div>
-                        <div class="medication-info">
-                            <p><strong>Medication:</strong> <span id="compartment1-medication">Morning Pills</span></p>
-                            <p><strong>Dosage:</strong> <span id="compartment1-dosage">2 tablets</span></p>
-                            <p><strong>Scheduled Times:</strong></p>
-                            <div class="medication-times">
-                                <span class="time-slot" id="compartment1-time1">08:00</span>
-                                <span class="time-slot" id="compartment1-time2">20:00</span>
-                            </div>
-                            <div class="adherence-indicator">
-                                <span>Today's Progress:</span>
-                                <div class="adherence-bar">
-                                    <div class="adherence-fill" id="compartment1-progress" style="width: 75%"></div>
-                                </div>
-                                <span>75%</span>
-                            </div>
-                        </div>
-                        <div class="button-group">
-                            <button onclick="openCompartment(1)" class="btn-success">Open</button>
-                            <button onclick="closeCompartment(1)" class="btn-danger">Close</button>
-                        </div>
+            <!-- Compartments Overview -->
+<div class="card">
+    <h2>Pill Compartments Status</h2>
+    <div class="grid">
+
+        <!-- Compartment 1 -->
+        <div class="compartment">
+            <div class="compartment-header">
+                <h3>Compartment 1</h3>
+                <span class="compartment-status status-closed" id="compartment1-status">Closed</span>
+            </div>
+            <div class="medication-info">
+                <p><strong>Medication:</strong> <span id="compartment1-medication">Morning Pills</span></p>
+                <p><strong>Dosage:</strong> <span id="compartment1-dosage">2 tablets</span></p>
+                <p><strong>Scheduled Times:</strong> <span id="compartment1-times">08:00 & 20:00</span></p>
+                <p><strong>Status:</strong> <span id="compartment1-taken">Waiting for Medication</span></p>
+                <div class="adherence-indicator">
+                    <span>Today's Progress:</span>
+                    <div class="adherence-bar">
+                        <div class="adherence-fill" id="compartment1-progress" style="width: 75%"></div>
                     </div>
-                    
-                    <div class="compartment">
-                        <div class="compartment-header">
-                            <h3>Compartment 2</h3>
-                            <span class="compartment-status status-closed" id="compartment2-status">Closed</span>
-                        </div>
-                        <div class="medication-info">
-                            <p><strong>Medication:</strong> <span id="compartment2-medication">Evening Pills</span></p>
-                            <p><strong>Dosage:</strong> <span id="compartment2-dosage">1 tablet</span></p>
-                            <p><strong>Scheduled Times:</strong></p>
-                            <div class="medication-times">
-                                <span class="time-slot" id="compartment2-time1">12:00</span>
-                                <span class="time-slot" id="compartment2-time2">22:00</span>
-                            </div>
-                            <div class="adherence-indicator">
-                                <span>Today's Progress:</span>
-                                <div class="adherence-bar">
-                                    <div class="adherence-fill" id="compartment2-progress" style="width: 50%"></div>
-                                </div>
-                                <span>50%</span>
-                            </div>
-                        </div>
-                        <div class="button-group">
-                            <button onclick="openCompartment(2)" class="btn-success">Open</button>
-                            <button onclick="closeCompartment(2)" class="btn-danger">Close</button>
-                        </div>
-                    </div>
+                    <span>75%</span>
                 </div>
+            </div>
+            <div class="button-group">
+                <button onclick="openCompartment(1)" class="btn-success">Open</button>
+                <button onclick="closeCompartment(1)" class="btn-danger">Close</button>
+            </div>
+        </div>
+
+        <!-- Compartment 2 -->
+        <div class="compartment">
+            <div class="compartment-header">
+                <h3>Compartment 2</h3>
+                <span class="compartment-status status-closed" id="compartment2-status">Closed</span>
+            </div>
+            <div class="medication-info">
+                <p><strong>Medication:</strong> <span id="compartment2-medication">Evening Pills</span></p>
+                <p><strong>Dosage:</strong> <span id="compartment2-dosage">1 tablet</span></p>
+                <p><strong>Scheduled Times:</strong> <span id="compartment2-times">12:00 & 22:00</span></p>
+                <p><strong>Status:</strong> <span id="compartment2-taken">Waiting for Medication</span></p>
+                <div class="adherence-indicator">
+                    <span>Today's Progress:</span>
+                    <div class="adherence-bar">
+                        <div class="adherence-fill" id="compartment2-progress" style="width: 50%"></div>
+                    </div>
+                    <span>50%</span>
+                </div>
+            </div>
+            <div class="button-group">
+                <button onclick="openCompartment(2)" class="btn-success">Open</button>
+                <button onclick="closeCompartment(2)" class="btn-danger">Close</button>
+            </div>
+        </div>
+
+    </div>
+
+
                 
                 <div class="button-group" style="margin-top: 30px;">
                     <button id="system-toggle-btn" onclick="toggleSystem()" class="btn-primary">Start System</button>
